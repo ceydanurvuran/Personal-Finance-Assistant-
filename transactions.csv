@@ -1,0 +1,7 @@
+id,user_id,type,description,amount,category
+1,2,income,sirket,50000.0,maas
+2,2,income,kyk,4000.0,burs
+3,2,expense,market,2000.0,food
+4,2,expense,transport,6000.0,taksi
+8,1,expense,loan payment,6000.0,fixed expense
+9,1,income,salary,50000.0,fixed income
