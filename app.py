@@ -13,1095 +13,830 @@ access_token = None
 current_username = ""
 selected_transaction_id = None
 all_transactions = []
+sidebar_buttons = {}
+recent_uploaded_files = []
+show_receipt_history = False
  
+# --- PREMIUM NEON DARK RENK PALETİ ---
+THEME_BG = "#121214"         
+THEME_SIDEBAR = "#1A1A1E"    
+THEME_CARD = "#22222A"       
+THEME_ACCENT = "#00ADB5"     
+THEME_INCOME = "#2ECC71"     
+THEME_EXPENSE = "#E74C3C"    
+THEME_TEXT_MAIN = "#FFFFFF"  
+THEME_TEXT_MUTED = "#8B8B9A" 
+
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
  
 app = ctk.CTk()
-app.geometry("1350x800")
+app.geometry("1400x850")
 app.title("Personal Financial Assistant")
- 
+app.configure(fg_color=THEME_BG)
  
 def get_headers():
    return {"Authorization": f"Bearer {access_token}"}
  
- 
 def show_error(label, message):
-   label.configure(text=message, text_color="red")
+   label.configure(text=message, text_color=THEME_EXPENSE)
  
- 
-def clear_frames():
-   login_frame.place_forget()
-   register_frame.place_forget()
-   dashboard_frame.place_forget()
-   analytics_frame.place_forget()
-   transaction_frame.place_forget()
-   receipt_frame.place_forget()
- 
- 
+def set_active_sidebar_button(active_text):
+    for text, btn in sidebar_buttons.items():
+        if text == active_text:
+            btn.configure(
+                fg_color="#25252D", 
+                text_color=THEME_ACCENT, 
+                border_width=1, 
+                border_color=THEME_ACCENT
+            )
+        else:
+            btn.configure(
+                fg_color="transparent", 
+                text_color=THEME_TEXT_MAIN, 
+                border_width=0
+            )
+
+def make_sidebar_btn(parent, text, cmd):
+    btn = ctk.CTkButton(
+        parent, 
+        text=text, 
+        width=210, 
+        height=46, 
+        fg_color="transparent", 
+        text_color=THEME_TEXT_MAIN, 
+        hover_color="#22222A", 
+        anchor="w", 
+        font=("Arial", 14, "bold"),
+        corner_radius=12,
+        command=cmd
+    )
+    sidebar_buttons[text] = btn
+    return btn
+
+def change_page(tab_name, sidebar_text=None):
+    main_tabview.set(tab_name)
+    if sidebar_text:
+        set_active_sidebar_button(sidebar_text)
+
 def show_login():
-   clear_frames()
-   login_frame.place(relx=0.5, rely=0.5, anchor="center")
- 
+   main_layout_frame.pack_forget()
+   auth_tabview.pack(fill="both", expand=True)
+   auth_tabview.set("LoginView")
  
 def show_register():
-   clear_frames()
-   register_frame.place(relx=0.5, rely=0.5, anchor="center")
- 
+   auth_tabview.set("RegisterView")
  
 def show_dashboard():
-   clear_frames()
-   welcome_label.configure(text=f"Welcome back, {current_username}")
-   load_summary()
-   load_transactions()
-   dashboard_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.94, relheight=0.9)
- 
+   load_all_data_packages()
+   change_page("DashboardView", "  📊  Dashboard")
  
 def show_analytics():
-   clear_frames()
-   load_transactions()
-   update_analytics()
-   analytics_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.94, relheight=0.9)
- 
+   load_all_data_packages()
+   change_page("AnalyticsView", "  📈  Analytics")
  
 def show_transaction_screen():
-   clear_frames()
-   transaction_frame.place(relx=0.5, rely=0.5, anchor="center")
- 
+   change_page("TransactionFormView", "  ➕  Add Transaction")
  
 def show_receipt_screen():
-   clear_frames()
-   receipt_result_label.configure(text="Choose a receipt file to upload.", text_color="white")
    load_uploaded_files()
-   receipt_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.82, relheight=0.82)
- 
- 
+   change_page("ReceiptView", "  🧾  Receipt Upload")
+
+def load_all_data_packages():
+    load_summary()
+    load_transactions()
+    load_ai_goals()
+
 def handle_register():
    username = reg_username_entry.get()
    password = reg_password_entry.get()
    confirm = reg_confirm_entry.get()
- 
    if username == "" or password == "" or confirm == "":
        show_error(reg_error, "Please fill all fields")
        return
- 
    if password != confirm:
        show_error(reg_error, "Passwords do not match")
        return
- 
    try:
-       response = requests.post(
-           f"{API_URL}/register",
-           json={"username": username, "password": password}
-       )
- 
-       if response.status_code == 200:
-           reg_error.configure(text="Account created successfully", text_color="lightgreen")
-           show_login()
-       else:
-           try:
-               message = response.json().get("detail", "Register failed")
-           except Exception:
-               message = response.text
-           show_error(reg_error, message)
- 
-   except requests.exceptions.ConnectionError:
-       show_error(reg_error, "Backend server is not running")
- 
+       response = requests.post(f"{API_URL}/register", json={"username": username, "password": password})
+       if response.status_code == 200: show_login()
+       else: show_error(reg_error, response.json().get("detail", "Register failed"))
+   except Exception: show_error(reg_error, "Server error")
  
 def handle_login():
    global access_token, current_username
- 
    username = login_username_entry.get()
    password = login_password_entry.get()
- 
    if username == "" or password == "":
        show_error(login_error, "Please fill all fields")
        return
- 
    try:
-       response = requests.post(
-           f"{API_URL}/login",
-           json={"username": username, "password": password}
-       )
- 
+       response = requests.post(f"{API_URL}/login", json={"username": username, "password": password})
        if response.status_code == 200:
            access_token = response.json()["access_token"]
            current_username = username
            login_error.configure(text="")
+           
+           auth_tabview.pack_forget()
+           main_layout_frame.pack(fill="both", expand=True, padx=30, pady=30)
+           user_name_label.configure(text=current_username.upper())
            show_dashboard()
        else:
-           try:
-               message = response.json().get("detail", "Login failed")
-           except Exception:
-               message = response.text
-           show_error(login_error, message)
- 
-   except requests.exceptions.ConnectionError:
-       show_error(login_error, "Backend server is not running")
- 
+           show_error(login_error, "Invalid username or password")
+   except Exception: show_error(login_error, "Server offline")
  
 def handle_logout():
    global access_token, current_username
    access_token = None
    current_username = ""
    show_login()
- 
- 
+
+def set_ai_goal_from_inputs():
+    """AI hedef kartındaki kullanıcı hedefini günceller."""
+    global ai_target_amount, ai_target_currency
+    try:
+        value = float(ai_target_entry.get().replace(",", "."))
+        if value <= 0:
+            ai_estimate_val.configure(text="Target amount must be greater than 0", text_color=THEME_EXPENSE)
+            return
+        ai_target_amount = value
+        ai_target_currency = ai_currency_option.get()
+        load_ai_goals()
+    except Exception:
+        ai_estimate_val.configure(text="Please enter a valid target amount", text_color=THEME_EXPENSE)
+
+
+def _fetch_frontend_rates():
+    """Backend kur servisi cevap vermezse frontend tarafında yedek kur denemesi yapar."""
+    try:
+        fx_res = requests.get(
+            "https://api.frankfurter.app/latest?from=TRY&to=USD,EUR,GBP",
+            timeout=6
+        )
+        fx_res.raise_for_status()
+        fx = fx_res.json().get("rates", {})
+        return {
+            "usd": fx.get("USD", 0),
+            "eur": fx.get("EUR", 0),
+            "gbp": fx.get("GBP", 0)
+        }
+    except Exception:
+        return {}
+
+
+def _rate_to_try(rates, currency):
+    key = currency.lower()
+    if key == "try":
+        return 1
+    rate = rates.get(key, 0)
+    if rate and rate > 0:
+        return 1 / rate
+    return 0
+
+
+def load_ai_goals():
+    """AI Financial Snapshot kartını günceller: kur, USD dönüşümü ve kullanıcı hedefi."""
+    target_amount = ai_target_amount
+    target_currency = ai_target_currency
+
+    try:
+        response = requests.get(
+            f"{API_URL}/ai/context?target_amount={target_amount}&target_currency={target_currency}",
+            headers=get_headers(),
+            timeout=8
+        )
+
+        if response.status_code == 200:
+            payload = response.json()
+            ai_data = payload.get("finance", {})
+            rates = payload.get("rates", {})
+            goal = ai_data.get("goal", {})
+
+            net_try = float(ai_data.get("net_try", 0) or 0)
+            net_usd = float(ai_data.get("net_usd", 0) or 0)
+            usd_try = _rate_to_try(rates, "USD")
+            eur_try = _rate_to_try(rates, "EUR")
+            gbp_try = _rate_to_try(rates, "GBP")
+
+            target_try = goal.get("target_try")
+            weeks_needed = goal.get("weeks_needed")
+
+            ai_goal_val.configure(
+                text=f"Net Balance: {net_try:.2f} TL  ≈  {net_usd:.2f} USD",
+                text_color=THEME_TEXT_MAIN
+            )
+            ai_weeks_val.configure(
+                text=f"USD/TRY: {usd_try:.2f} TL" if usd_try else "USD/TRY: unavailable",
+                text_color=THEME_TEXT_MUTED
+            )
+            ai_rates_val.configure(
+                text=f"EUR/TRY: {eur_try:.2f} TL   |   GBP/TRY: {gbp_try:.2f} TL" if eur_try and gbp_try else "EUR/GBP rates unavailable",
+                text_color=THEME_TEXT_MUTED
+            )
+            ai_target_val.configure(
+                text=f"Current Target: {target_amount:g} {target_currency}"
+                     + (f"  ≈  {float(target_try):.2f} TL" if target_try is not None else ""),
+                text_color=THEME_TEXT_MAIN
+            )
+            ai_estimate_val.configure(
+                text="Estimated Time: No weekly saving stream" if weeks_needed is None else f"Estimated Time: {weeks_needed} weeks",
+                text_color=THEME_ACCENT
+            )
+            return
+        else:
+            print("AI context error:", response.status_code, response.text)
+
+    except Exception as e:
+        print("AI context request failed:", e)
+
+    # Backend AI context çalışmazsa: /summary + frontend yedek kur servisi ile yine kur ve hedef göster.
+    try:
+        summary_res = requests.get(f"{API_URL}/summary", headers=get_headers(), timeout=5)
+        if summary_res.status_code == 200:
+            data = summary_res.json()
+            net_try = float(data.get("balance", 0) or 0)
+            rates = _fetch_frontend_rates()
+            usd_try = _rate_to_try(rates, "USD")
+            eur_try = _rate_to_try(rates, "EUR")
+            gbp_try = _rate_to_try(rates, "GBP")
+
+            if usd_try:
+                net_usd = net_try / usd_try
+                target_try = target_amount * _rate_to_try(rates, target_currency)
+                ai_goal_val.configure(text=f"Net Balance: {net_try:.2f} TL  ≈  {net_usd:.2f} USD", text_color=THEME_TEXT_MAIN)
+                ai_weeks_val.configure(text=f"USD/TRY: {usd_try:.2f} TL", text_color=THEME_TEXT_MUTED)
+                ai_rates_val.configure(
+                    text=f"EUR/TRY: {eur_try:.2f} TL   |   GBP/TRY: {gbp_try:.2f} TL" if eur_try and gbp_try else "EUR/GBP rates unavailable",
+                    text_color=THEME_TEXT_MUTED
+                )
+                ai_target_val.configure(text=f"Current Target: {target_amount:g} {target_currency}  ≈  {target_try:.2f} TL", text_color=THEME_TEXT_MAIN)
+                ai_estimate_val.configure(text="Estimated Time: backend weekly calculation unavailable", text_color=THEME_TEXT_MUTED)
+            else:
+                ai_goal_val.configure(text=f"Net Balance: {net_try:.2f} TL", text_color=THEME_TEXT_MAIN)
+                ai_weeks_val.configure(text="USD/TRY: unavailable", text_color=THEME_TEXT_MUTED)
+                ai_rates_val.configure(text="Currency service could not be reached", text_color=THEME_TEXT_MUTED)
+                ai_target_val.configure(text=f"Current Target: {target_amount:g} {target_currency}", text_color=THEME_TEXT_MAIN)
+                ai_estimate_val.configure(text="Estimated Time: unavailable", text_color=THEME_TEXT_MUTED)
+        else:
+            ai_goal_val.configure(text="Finance data unavailable", text_color=THEME_EXPENSE)
+            ai_weeks_val.configure(text="Please sync again", text_color=THEME_TEXT_MUTED)
+            ai_rates_val.configure(text="", text_color=THEME_TEXT_MUTED)
+            ai_target_val.configure(text="", text_color=THEME_TEXT_MUTED)
+            ai_estimate_val.configure(text="", text_color=THEME_TEXT_MUTED)
+    except Exception:
+        ai_goal_val.configure(text="Server unavailable", text_color=THEME_EXPENSE)
+        ai_weeks_val.configure(text="Start backend and sync again", text_color=THEME_TEXT_MUTED)
+        ai_rates_val.configure(text="", text_color=THEME_TEXT_MUTED)
+        ai_target_val.configure(text="", text_color=THEME_TEXT_MUTED)
+        ai_estimate_val.configure(text="", text_color=THEME_TEXT_MUTED)
+
 def load_summary():
    try:
        response = requests.get(f"{API_URL}/summary", headers=get_headers())
- 
        if response.status_code == 200:
            data = response.json()
-           income = data.get("income", 0)
-           expense = data.get("expense", 0)
-           balance = data.get("balance", 0)
-           ratio = expense / income if income > 0 else 0
- 
-           income_value.configure(text=f"{income:.2f} TL")
-           expense_value.configure(text=f"{expense:.2f} TL")
-           balance_value.configure(text=f"{balance:.2f} TL")
- 
-           if ratio > 0.7:
-               risk_value.configure(text="High")
-               risk_status_label.configure(text="High Risk")
-               risk_progress.set(0.9)
-           elif ratio > 0.4:
-               risk_value.configure(text="Medium")
-               risk_status_label.configure(text="Medium Risk")
-               risk_progress.set(0.55)
-           else:
-               risk_value.configure(text="Low")
-               risk_status_label.configure(text="Low Risk")
-               risk_progress.set(0.25)
- 
-           ratio_label.configure(text=f"Expense / Income Ratio: {ratio:.2f}")
- 
-   except requests.exceptions.ConnectionError:
-       income_value.configure(text="Error")
-       expense_value.configure(text="Error")
-       balance_value.configure(text="Error")
-       risk_value.configure(text="Error")
- 
+           income, expense, balance = data.get("income", 0), data.get("expense", 0), data.get("balance", 0)
+           income_value.configure(text=f"{income:.2f} TL", text_color=THEME_INCOME)
+           expense_value.configure(text=f"{expense:.2f} TL", text_color=THEME_EXPENSE)
+           balance_value.configure(text=f"{balance:.2f} TL", text_color=THEME_INCOME if balance >= 0 else THEME_EXPENSE)
+           balance_card_frame.configure(border_color=THEME_INCOME if balance >= 0 else THEME_EXPENSE)
+           transaction_count_value.configure(text=str(len(all_transactions)), text_color=THEME_ACCENT)
+   except Exception: pass
  
 def load_transactions():
    global all_transactions
- 
    try:
        response = requests.get(f"{API_URL}/transactions", headers=get_headers())
- 
        if response.status_code == 200:
            all_transactions = response.json()
-           transaction_count_value.configure(text=str(len(all_transactions)))
            update_category_breakdown()
            update_transaction_table()
-       else:
-           all_transactions = []
-           update_transaction_table()
- 
-   except requests.exceptions.ConnectionError:
-       all_transactions = []
-       update_transaction_table()
- 
+           
+           # 👇 GRAFİKLERİN ÇİZİLMESİ İÇİN EKLENMESİ GEREKEN TEK SATIR BU 👇
+           update_analytics() 
+           
+   except Exception: pass
  
 def get_filtered_transactions():
    search_text = search_entry.get().lower()
    filter_value = filter_option.get()
    filtered = all_transactions
- 
-   if filter_value != "All":
-       filtered = [t for t in filtered if t["type"] == filter_value.lower()]
- 
-   if search_text != "":
-       filtered = [
-           t for t in filtered
-           if search_text in t["description"].lower()
-           or search_text in t["category"].lower()
-       ]
- 
+   if filter_value != "All": filtered = [t for t in filtered if t["type"] == filter_value.lower()]
+   if search_text != "": filtered = [t for t in filtered if search_text in t["description"].lower() or search_text in t["category"].lower()]
    return filtered
  
- 
 def update_transaction_table():
-   for widget in transaction_rows_frame.winfo_children():
-       widget.destroy()
- 
+   for widget in transaction_rows_frame.winfo_children(): widget.destroy()
    header = ctk.CTkFrame(transaction_rows_frame, fg_color="transparent")
    header.pack(fill="x", pady=(0, 8))
- 
    headers = ["Type", "Description", "Amount", "Category", "Actions"]
    widths = [90, 190, 130, 150, 190]
- 
    for title, width in zip(headers, widths):
-       ctk.CTkLabel(
-           header,
-           text=title,
-           font=("Arial", 13, "bold"),
-           width=width,
-           anchor="w"
-       ).pack(side="left", padx=5)
- 
+       ctk.CTkLabel(header, text=title, font=("Arial", 13, "bold"), width=width, text_color=THEME_TEXT_MUTED, anchor="w").pack(side="left", padx=5)
    filtered = get_filtered_transactions()
- 
    if len(filtered) == 0:
-       ctk.CTkLabel(
-           transaction_rows_frame,
-           text="No transactions found.",
-           text_color="gray",
-           font=("Arial", 14)
-       ).pack(pady=35)
+       ctk.CTkLabel(transaction_rows_frame, text="No transactions found.", text_color=THEME_TEXT_MUTED, font=("Arial", 14)).pack(pady=35)
        return
- 
    for row in filtered:
-       row_frame = ctk.CTkFrame(transaction_rows_frame, corner_radius=10)
+       row_frame = ctk.CTkFrame(transaction_rows_frame, fg_color=THEME_BG, corner_radius=10, border_width=1, border_color="#2A2A35")
        row_frame.pack(fill="x", pady=5)
- 
-       type_text = row["type"]
-       type_color = "lightgreen" if type_text == "income" else "#ff7777"
- 
-       ctk.CTkLabel(
-           row_frame,
-           text=type_text.upper(),
-           width=90,
-           anchor="w",
-           text_color=type_color,
-           font=("Arial", 13, "bold")
-       ).pack(side="left", padx=5, pady=9)
- 
-       ctk.CTkLabel(row_frame, text=row["description"], width=190, anchor="w").pack(side="left", padx=5)
-       ctk.CTkLabel(row_frame, text=f'{row["amount"]} TL', width=130, anchor="w").pack(side="left", padx=5)
-       ctk.CTkLabel(row_frame, text=row["category"], width=150, anchor="w").pack(side="left", padx=5)
- 
-       ctk.CTkButton(
-           row_frame,
-           text="Edit",
-           width=75,
-           height=28,
-           command=lambda r=row: open_edit_transaction(r)
-       ).pack(side="left", padx=4)
- 
-       ctk.CTkButton(
-           row_frame,
-           text="Delete",
-           width=85,
-           height=28,
-           fg_color="darkred",
-           hover_color="red",
-           command=lambda tid=row["id"]: handle_delete_transaction(tid)
-       ).pack(side="left", padx=4)
- 
+       type_color = THEME_INCOME if row["type"] == "income" else THEME_EXPENSE
+       ctk.CTkLabel(row_frame, text=row["type"].upper(), width=90, anchor="w", text_color=type_color, font=("Arial", 13, "bold")).pack(side="left", padx=10, pady=9)
+       ctk.CTkLabel(row_frame, text=row["description"], width=190, anchor="w", text_color=THEME_TEXT_MAIN).pack(side="left", padx=5)
+       ctk.CTkLabel(row_frame, text=f'{row["amount"]} TL', width=130, anchor="w", text_color=THEME_TEXT_MAIN, font=("Arial", 13, "bold")).pack(side="left", padx=5)
+       ctk.CTkLabel(row_frame, text=row["category"], width=150, anchor="w", text_color=THEME_TEXT_MUTED).pack(side="left", padx=5)
+       ctk.CTkButton(row_frame, text="Edit", width=75, height=28, fg_color="#34495E", command=lambda r=row: open_edit_transaction(r)).pack(side="left", padx=4)
+       ctk.CTkButton(row_frame, text="Delete", width=85, height=28, fg_color="#962D22", command=lambda tid=row["id"]: handle_delete_transaction(tid)).pack(side="left", padx=4)
  
 def update_category_breakdown():
-   for widget in category_list_frame.winfo_children():
-       widget.destroy()
- 
+   for widget in category_list_frame.winfo_children(): widget.destroy()
    expense_categories = {}
- 
    for transaction in all_transactions:
        if transaction["type"] == "expense":
            category = transaction["category"]
            expense_categories[category] = expense_categories.get(category, 0) + transaction["amount"]
- 
    if len(expense_categories) == 0:
-       ctk.CTkLabel(
-           category_list_frame,
-           text="No expense categories yet.",
-           text_color="gray"
-       ).pack(anchor="w", padx=15, pady=10)
+       ctk.CTkLabel(category_list_frame, text="No expense categories yet.", text_color=THEME_TEXT_MUTED).pack(anchor="w", padx=15, pady=10)
        return
- 
-   sorted_categories = sorted(expense_categories.items(), key=lambda x: x[1], reverse=True)
- 
-   for category, amount in sorted_categories[:5]:
-       ctk.CTkLabel(
-           category_list_frame,
-           text=f"{category}: {amount:.2f} TL",
-           font=("Arial", 14),
-           anchor="w"
-       ).pack(anchor="w", padx=15, pady=4)
- 
+   for category, amount in sorted(expense_categories.items(), key=lambda x: x[1], reverse=True)[:5]:
+       ctk.CTkLabel(category_list_frame, text=f"• {category}: {amount:.2f} TL", font=("Arial", 14), text_color=THEME_TEXT_MAIN).pack(anchor="w", padx=15, pady=4)
  
 def update_analytics():
-   for widget in analytics_chart_frame.winfo_children():
-       widget.destroy()
- 
-   for widget in analytics_category_table.winfo_children():
-       widget.destroy()
- 
-   income = 0
-   expense = 0
-   category_totals = {}
- 
+   for widget in analytics_chart_frame.winfo_children(): widget.destroy()
+   income, expense, category_totals = 0, 0, {}
    for transaction in all_transactions:
        amount = transaction["amount"]
- 
-       if transaction["type"] == "income":
-           income += amount
+       if transaction["type"] == "income": income += amount
        elif transaction["type"] == "expense":
            expense += amount
-           category = transaction["category"]
-           category_totals[category] = category_totals.get(category, 0) + amount
- 
+           category_totals[transaction["category"]] = category_totals.get(transaction["category"], 0) + amount
    balance = income - expense
-   ratio = expense / income if income > 0 else 0
+   analytics_summary.configure(text=f"Income: {income:.2f} TL   |   Expense: {expense:.2f} TL   |   Net Balance: {balance:.2f} TL")
  
-   analytics_summary.configure(
-       text=f"Income: {income:.2f} TL\n"
-            f"Expense: {expense:.2f} TL\n"
-            f"Balance: {balance:.2f} TL\n"
-            f"Expense Ratio: {ratio:.2f}"
-   )
- 
-   if ratio > 0.7:
-       risk_text = "High"
-       insight = "Your expenses are high compared to your income."
-       progress_value = 0.9
-   elif ratio > 0.4:
-       risk_text = "Medium"
-       insight = "Your spending is moderate."
-       progress_value = 0.55
-   else:
-       risk_text = "Low"
-       insight = "Your financial situation looks healthy."
-       progress_value = 0.25
- 
-   analytics_risk.configure(text=f"Risk Level: {risk_text}")
-   analytics_progress.set(progress_value)
-   insight_label.configure(text=insight)
- 
-   fig1 = Figure(figsize=(4.2, 2.6), dpi=100)
-   ax1 = fig1.add_subplot(111)
-   ax1.bar(["Income", "Expense"], [income, expense])
-   ax1.set_title("Income vs Expense")
-   ax1.set_ylabel("Amount (TL)")
+   fig1 = Figure(figsize=(4.4, 2.8), dpi=100, facecolor=THEME_CARD)
+   ax1 = fig1.add_subplot(111, facecolor=THEME_CARD)
+   ax1.bar(["Income", "Expense"], [income, expense], color=[THEME_INCOME, THEME_EXPENSE])
+   ax1.tick_params(colors='white')
    fig1.tight_layout()
+   FigureCanvasTkAgg(fig1, master=analytics_chart_frame).get_tk_widget().pack(side="left", padx=15, pady=10)
  
-   canvas1 = FigureCanvasTkAgg(fig1, master=analytics_chart_frame)
-   canvas1.draw()
-   canvas1.get_tk_widget().pack(side="left", padx=10, pady=10)
- 
-   fig2 = Figure(figsize=(4.2, 2.6), dpi=100)
-   ax2 = fig2.add_subplot(111)
- 
+   fig2 = Figure(figsize=(4.4, 2.8), dpi=100, facecolor=THEME_CARD)
+   ax2 = fig2.add_subplot(111, facecolor=THEME_CARD)
+   ax2.tick_params(colors='white')
    if category_totals:
-       categories = list(category_totals.keys())
-       amounts = list(category_totals.values())
-       ax2.bar(categories, amounts)
-       ax2.set_title("Expenses by Category")
-       ax2.set_ylabel("Amount (TL)")
-       ax2.tick_params(axis="x", rotation=25)
-   else:
-       ax2.text(0.5, 0.5, "No expense data", ha="center", va="center")
-       ax2.set_axis_off()
- 
+       ax2.bar(list(category_totals.keys()), list(category_totals.values()), color=THEME_ACCENT)
+       ax2.tick_params(axis="x", rotation=20, colors='white')
    fig2.tight_layout()
- 
-   canvas2 = FigureCanvasTkAgg(fig2, master=analytics_chart_frame)
-   canvas2.draw()
-   canvas2.get_tk_widget().pack(side="left", padx=10, pady=10)
- 
-   ctk.CTkLabel(
-       analytics_category_table,
-       text="Category",
-       font=("Arial", 14, "bold"),
-       width=180,
-       anchor="w"
-   ).grid(row=0, column=0, padx=10, pady=5)
- 
-   ctk.CTkLabel(
-       analytics_category_table,
-       text="Amount",
-       font=("Arial", 14, "bold"),
-       width=120,
-       anchor="w"
-   ).grid(row=0, column=1, padx=10, pady=5)
- 
-   sorted_categories = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)
- 
-   if not sorted_categories:
-       ctk.CTkLabel(
-           analytics_category_table,
-           text="No category data available.",
-           text_color="gray"
-       ).grid(row=1, column=0, padx=10, pady=10)
-   else:
-       for index, (category, amount) in enumerate(sorted_categories, start=1):
-           ctk.CTkLabel(
-               analytics_category_table,
-               text=category,
-               width=180,
-               anchor="w"
-           ).grid(row=index, column=0, padx=10, pady=4)
- 
-           ctk.CTkLabel(
-               analytics_category_table,
-               text=f"{amount:.2f} TL",
-               width=120,
-               anchor="w"
-           ).grid(row=index, column=1, padx=10, pady=4)
- 
+   FigureCanvasTkAgg(fig2, master=analytics_chart_frame).get_tk_widget().pack(side="left", padx=15, pady=10)
+
 def open_live_camera():
     if access_token is None:
-        receipt_result_label.configure(text="Please login first.", text_color="red")
+        receipt_result_label.configure(text="Please login first.", text_color=THEME_EXPENSE)
         return
 
     def run_camera():
-        receipt_result_label.configure(text="Camera is starting...", text_color="orange")
-        app.update()
-
+        global recent_uploaded_files
+        receipt_result_label.configure(text="Camera is starting... Press SPACE to capture, ESC to cancel.", text_color=THEME_TEXT_MUTED)
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
-            receipt_result_label.configure(text="Camera did not turn on!", text_color="red")
+            receipt_result_label.configure(text="Camera could not be opened.", text_color=THEME_EXPENSE)
             return
-
-        receipt_result_label.configure(text="The camera is on! Show the power cord and press the SPACE key. Press ESC to exit", text_color="orange")
 
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-
             cv2.imshow("Live Receipt Scanner", frame)
             key = cv2.waitKey(1)
-
-            # SPACE (Boşluk) tuşuna basıldıysa
-            if key == 32: 
-                receipt_result_label.configure(text="The photo has been taken and is being analyzed...", text_color="white")
-                
+            if key == 32:
                 temp_filename = "temp_receipt.jpg"
                 cv2.imwrite(temp_filename, frame)
-
                 try:
                     with open(temp_filename, "rb") as file:
-                        # Formatı açıkça "image/jpeg" olarak belirtiyoruz
-                        response = requests.post(
+                        res = requests.post(
                             f"{API_URL}/upload-receipt",
                             headers=get_headers(),
-                            files={"file": ("temp_receipt.jpg", file, "image/jpeg")} 
+                            files={"file": ("camera_receipt.jpg", file, "image/jpeg")}
                         )
-
-                    if response.status_code == 200:
-                        receipt_result_label.configure(text="The receipt was successfully scanned and uploaded.!", text_color="lightgreen")
-                        load_uploaded_files() # Listeyi güncelle
-                    else:
-                        # Sunucudan gelen GERÇEK hatayı yakalayıp ekrana basıyoruz
-                        try:
-                            hata_mesaji = response.json().get("detail", "Unknown error")
-                        except:
-                            hata_mesaji = "Server Error (500)"
-                            
-                        receipt_result_label.configure(text=f"Installation Failed: {hata_mesaji}", text_color="red")
-                        print(f"❌ BACKEND REJECTED: {response.text}") # Terminale de yazdır
-                        
-                except requests.exceptions.ConnectionError:
-                    receipt_result_label.configure(text="The backend server is unreachable.", text_color="red")    
-
+                    status = "Uploaded / Waiting Analysis" if res.status_code == 200 else "Upload Failed"
+                    recent_uploaded_files.insert(0, {"filename": "camera_receipt.jpg", "status": status})
+                    receipt_result_label.configure(text=f"camera_receipt.jpg → {status}", text_color=THEME_INCOME if res.status_code == 200 else THEME_EXPENSE)
+                    load_all_data_packages()
+                    load_uploaded_files()
+                except Exception:
+                    receipt_result_label.configure(text="Camera upload failed. Check backend.", text_color=THEME_EXPENSE)
                 if os.path.exists(temp_filename):
                     os.remove(temp_filename)
-                
-                break # İşlem bitince kamerayı kapat
-
-            # ESC tuşuna basıldıysa
-            elif key == 27: 
-                receipt_result_label.configure(text="Camera turned off.", text_color="white")
                 break
-
+            elif key == 27:
+                break
         cap.release()
         cv2.destroyAllWindows()
 
-    # Kamerayı ayrı bir iş parçacığında (thread) başlatarak arayüzün donmasını engelliyoruz
-    threading.Thread(target=run_camera).start()
+    threading.Thread(target=run_camera, daemon=True).start()
 
 def upload_receipt_file():
-
+    global recent_uploaded_files
     if access_token is None:
-        receipt_result_label.configure(
-            text="Please login first.",
-            text_color="red"
-        )
+        receipt_result_label.configure(text="Please login first.", text_color=THEME_EXPENSE)
         return
 
-    file_path = filedialog.askopenfilename(
-        filetypes=[("Receipt Files", "*.jpg *.jpeg *.png *.pdf")]
-    )
-
+    file_path = filedialog.askopenfilename(filetypes=[("Receipt Files", "*.jpg *.jpeg *.png *.pdf")])
     if file_path == "":
         return
 
-    receipt_result_label.configure(
-        text="Uploading receipt...",
-        text_color="white"
-    )
-
-    app.update()
+    filename = os.path.basename(file_path)
+    ext = os.path.splitext(filename)[1].lower()
+    content_type = "application/pdf" if ext == ".pdf" else "image/jpeg"
 
     try:
-
-        import mimetypes
-
-        mime_type, _ = mimetypes.guess_type(file_path)
-
-        if mime_type is None:
-            mime_type = "application/octet-stream"
-
+        receipt_result_label.configure(text=f"Uploading {filename}...", text_color=THEME_TEXT_MUTED)
         with open(file_path, "rb") as file:
-
             response = requests.post(
                 f"{API_URL}/upload-receipt",
                 headers=get_headers(),
-                files={
-                    "file": (
-                        os.path.basename(file_path),
-                        file,
-                        mime_type
-                    )
-                }
+                files={"file": (filename, file, content_type)}
             )
 
         if response.status_code == 200:
-
-            data = response.json()
-
-            ai = data.get("ai_results", {})
-
-            result_text = (
-                f"Store: {ai.get('store')}\n"
-                f"Total: {ai.get('total')} TL\n"
-                f"Category: {ai.get('category')}"
-            )
-
-            receipt_result_label.configure(
-                text=result_text,
-                text_color="lightgreen"
-            )
-
-            load_uploaded_files()
-            load_dashboard()
-
+            recent_uploaded_files.insert(0, {"filename": filename, "status": "Uploaded / Waiting Analysis"})
+            receipt_result_label.configure(text=f"{filename} uploaded. Analysis status is shown below.", text_color=THEME_INCOME)
         else:
+            recent_uploaded_files.insert(0, {"filename": filename, "status": "Upload Failed"})
+            receipt_result_label.configure(text=f"Upload failed: {response.text}", text_color=THEME_EXPENSE)
 
-            try:
-                message = response.json().get(
-                    "detail",
-                    "Upload failed"
-                )
+        load_all_data_packages()
+        load_uploaded_files()
+        change_page("ReceiptView", "  🧾  Receipt Upload")
+    except Exception:
+        recent_uploaded_files.insert(0, {"filename": filename, "status": "Upload Failed"})
+        receipt_result_label.configure(text="Upload failed. Check backend connection.", text_color=THEME_EXPENSE)
+        load_uploaded_files()
 
-            except Exception:
-                message = response.text
+def toggle_receipt_history():
+    global show_receipt_history
+    show_receipt_history = not show_receipt_history
+    load_uploaded_files()
 
-            receipt_result_label.configure(
-                text=message,
-                text_color="red"
-            )
+def _add_file_row(parent, filename, status, status_color=None):
+    row = ctk.CTkFrame(parent, fg_color=THEME_BG, corner_radius=10, border_width=1, border_color="#2A2A35")
+    row.pack(fill="x", pady=5)
+    ctk.CTkLabel(row, text=filename, width=360, anchor="w", font=("Arial", 14, "bold")).pack(side="left", padx=10, pady=8)
+    ctk.CTkLabel(row, text=status, width=210, anchor="w", text_color=status_color or THEME_TEXT_MUTED).pack(side="left", padx=10)
 
-    except requests.exceptions.ConnectionError:
-
-        receipt_result_label.configure(
-            text="Backend server is not running.",
-            text_color="red"
-        )
 def load_uploaded_files():
    for widget in uploaded_files_frame.winfo_children():
        widget.destroy()
- 
-   try:
-       response = requests.get(f"{API_URL}/files", headers=get_headers())
- 
-       if response.status_code != 200:
-           ctk.CTkLabel(
-               uploaded_files_frame,
-               text="Could not load uploaded files.",
-               text_color="red"
-           ).pack(pady=10)
-           return
- 
-       files = response.json()
- 
-       if len(files) == 0:
-           ctk.CTkLabel(
-               uploaded_files_frame,
-               text="No uploaded receipts yet.",
-               text_color="gray"
-           ).pack(pady=10)
-           return
- 
-       for file in files:
-           status = "Analyzed" if file["is_analyzed"] == 1 else "Not analyzed yet"
- 
-           row = ctk.CTkFrame(uploaded_files_frame, corner_radius=10)
-           row.pack(fill="x", pady=5)
- 
-           ctk.CTkLabel(
-               row,
-               text=file["filename"],
-               width=260,
-               anchor="w",
-               font=("Arial", 14, "bold")
-           ).pack(side="left", padx=10, pady=8)
- 
-           ctk.CTkLabel(
-               row,
-               text=status,
-               width=150,
-               anchor="w",
-               text_color="lightgreen" if file["is_analyzed"] == 1 else "orange"
-           ).pack(side="left", padx=10)
- 
-           ctk.CTkLabel(
-               row,
-               text=file["uploaded_at"],
-               width=220,
-               anchor="w",
-               text_color="gray"
-           ).pack(side="left", padx=10)
- 
-   except requests.exceptions.ConnectionError:
+
+   ctk.CTkLabel(
+       uploaded_files_frame,
+       text="Current Upload Status",
+       font=("Arial", 16, "bold"),
+       text_color=THEME_ACCENT
+   ).pack(anchor="w", pady=(0, 8))
+
+   if len(recent_uploaded_files) == 0:
        ctk.CTkLabel(
            uploaded_files_frame,
-           text="Backend server is not running.",
-           text_color="red"
-       ).pack(pady=10)
- 
- 
+           text="No file uploaded in this session yet. Upload a receipt to see its live status here.",
+           text_color=THEME_TEXT_MUTED
+       ).pack(anchor="w", pady=(0, 12))
+   else:
+       for item in recent_uploaded_files[:5]:
+           color = THEME_INCOME if "Failed" not in item["status"] else THEME_EXPENSE
+           _add_file_row(uploaded_files_frame, item["filename"], item["status"], color)
+
+   ctk.CTkButton(
+       uploaded_files_frame,
+       text="Hide Upload History" if show_receipt_history else "Show Previous Uploads",
+       width=190,
+       height=34,
+       fg_color="#2A2A35",
+       hover_color="#353545",
+       command=toggle_receipt_history
+   ).pack(anchor="w", pady=(12, 8))
+
+   if not show_receipt_history:
+       return
+
+   ctk.CTkLabel(
+       uploaded_files_frame,
+       text="Previous Uploaded Files",
+       font=("Arial", 16, "bold"),
+       text_color=THEME_TEXT_MAIN
+   ).pack(anchor="w", pady=(5, 8))
+
+   try:
+       response = requests.get(f"{API_URL}/files", headers=get_headers(), timeout=5)
+       if response.status_code != 200:
+           ctk.CTkLabel(uploaded_files_frame, text="Could not load upload history.", text_color=THEME_EXPENSE).pack(anchor="w")
+           return
+
+       files = response.json()
+       if len(files) == 0:
+           ctk.CTkLabel(uploaded_files_frame, text="No previous uploads found.", text_color=THEME_TEXT_MUTED).pack(anchor="w")
+           return
+
+       for file in files:
+           status = "Analyzed" if file["is_analyzed"] == 1 else "Waiting Analysis"
+           color = THEME_INCOME if file["is_analyzed"] == 1 else THEME_TEXT_MUTED
+           _add_file_row(uploaded_files_frame, file["filename"], status, color)
+   except Exception:
+       ctk.CTkLabel(uploaded_files_frame, text="Server offline. History cannot be loaded.", text_color=THEME_EXPENSE).pack(anchor="w")
+
 def reset_transaction_form():
    global selected_transaction_id
- 
    selected_transaction_id = None
-   transaction_type_option.set("expense")
    desc_entry.delete(0, "end")
    amount_entry.delete(0, "end")
    category_entry.delete(0, "end")
-   transaction_error.configure(text="")
-   save_transaction_button.configure(text="Save Transaction")
- 
  
 def open_add_transaction():
    reset_transaction_form()
    show_transaction_screen()
  
- 
 def open_edit_transaction(row):
    global selected_transaction_id
- 
    selected_transaction_id = row["id"]
-   transaction_type_option.set(row["type"])
- 
-   desc_entry.delete(0, "end")
    desc_entry.insert(0, row["description"])
- 
-   amount_entry.delete(0, "end")
    amount_entry.insert(0, str(row["amount"]))
- 
-   category_entry.delete(0, "end")
    category_entry.insert(0, row["category"])
- 
-   save_transaction_button.configure(text="Update Transaction")
    show_transaction_screen()
  
- 
 def handle_save_transaction():
-   global selected_transaction_id
- 
-   t_type = transaction_type_option.get()
-   description = desc_entry.get()
-   amount = amount_entry.get()
-   category = category_entry.get()
- 
-   if description == "" or amount == "" or category == "":
-       show_error(transaction_error, "Please fill all fields")
-       return
- 
+   payload = {"type": transaction_type_option.get(), "description": desc_entry.get(), "amount": float(amount_entry.get()), "category": category_entry.get()}
    try:
-       amount = float(amount)
-   except ValueError:
-       show_error(transaction_error, "Amount must be a number")
-       return
- 
-   payload = {
-       "type": t_type,
-       "description": description,
-       "amount": amount,
-       "category": category
-   }
- 
-   try:
-       if selected_transaction_id is None:
-           response = requests.post(
-               f"{API_URL}/transactions",
-               json=payload,
-               headers=get_headers()
-           )
-       else:
-           response = requests.put(
-               f"{API_URL}/transactions/{selected_transaction_id}",
-               json=payload,
-               headers=get_headers()
-           )
- 
-       if response.status_code == 200:
-           reset_transaction_form()
-           show_dashboard()
-       else:
-           show_error(transaction_error, "Transaction failed")
- 
-   except requests.exceptions.ConnectionError:
-       show_error(transaction_error, "Backend server is not running")
- 
+       if selected_transaction_id is None: requests.post(f"{API_URL}/transactions", json=payload, headers=get_headers())
+       else: requests.put(f"{API_URL}/transactions/{selected_transaction_id}", json=payload, headers=get_headers())
+       show_dashboard()
+   except Exception: pass
  
 def handle_delete_transaction(transaction_id):
    try:
-       response = requests.delete(
-           f"{API_URL}/transactions/{transaction_id}",
-           headers=get_headers()
-       )
- 
-       if response.status_code == 200:
-           show_dashboard()
- 
-   except requests.exceptions.ConnectionError:
-       pass
- 
- 
-# LOGIN FRAME
-login_frame = ctk.CTkFrame(app, width=430, height=430, corner_radius=22)
-login_frame.pack_propagate(False)
- 
-ctk.CTkLabel(login_frame, text="Personal Financial Assistant", font=("Arial", 26, "bold")).pack(pady=(40, 10))
-ctk.CTkLabel(login_frame, text="Login to view your financial dashboard", font=("Arial", 14), text_color="gray").pack(pady=(0, 25))
- 
-login_username_entry = ctk.CTkEntry(login_frame, placeholder_text="Username", width=310, height=42)
+       if requests.delete(f"{API_URL}/transactions/{transaction_id}", headers=get_headers()).status_code == 200: show_dashboard()
+   except Exception: pass
+
+# =========================================================================
+# 🔐 AUTHENTICATION TABVIEW ENGINE (GİRİŞ EKRANI)
+# =========================================================================
+auth_tabview = ctk.CTkTabview(app, fg_color="transparent")
+auth_tabview.pack(fill="both", expand=True)
+
+auth_tabview.add("LoginView")
+auth_tabview.add("RegisterView")
+
+# 🛠️ ÇÖZÜM: CustomTkinter sekmeleri gizlemek için Grid'i kapatır
+auth_tabview._segmented_button.grid_forget()
+
+# --- LOGIN GÖVDESİ ---
+login_frame = ctk.CTkFrame(auth_tabview.tab("LoginView"), fg_color="transparent")
+login_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.7, relheight=0.7)
+login_left = ctk.CTkFrame(login_frame, fg_color=THEME_SIDEBAR, corner_radius=20, border_width=1, border_color="#2A2A35")
+login_left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+ctk.CTkLabel(login_left, text="Finance AI", font=("Arial", 36, "bold"), text_color=THEME_ACCENT).pack(pady=(120, 10))
+ctk.CTkLabel(login_left, text="Automated OCR Receipt Scanning\nReal-time FX & Crypto Tracking\nSmart Predictive Analytics", font=("Arial", 14), text_color=THEME_TEXT_MUTED, justify="center").pack(pady=20)
+login_right = ctk.CTkFrame(login_frame, fg_color=THEME_CARD, corner_radius=20, border_width=1, border_color="#2A2A35")
+login_right.pack(side="right", fill="both", expand=True, padx=(10, 0))
+ctk.CTkLabel(login_right, text="Sign In", font=("Arial", 28, "bold")).pack(pady=(70, 30))
+login_username_entry = ctk.CTkEntry(login_right, placeholder_text="Username", width=280, height=45, fg_color=THEME_BG, border_color="#2A2A35")
 login_username_entry.pack(pady=10)
- 
-login_password_entry = ctk.CTkEntry(login_frame, placeholder_text="Password", show="*", width=310, height=42)
+login_password_entry = ctk.CTkEntry(login_right, placeholder_text="Password", show="*", width=280, height=45, fg_color=THEME_BG, border_color="#2A2A35")
 login_password_entry.pack(pady=10)
- 
-login_error = ctk.CTkLabel(login_frame, text="", text_color="red")
+login_error = ctk.CTkLabel(login_right, text="", text_color=THEME_EXPENSE)
 login_error.pack(pady=5)
+ctk.CTkButton(login_right, text="Access Dashboard", width=280, height=45, fg_color=THEME_ACCENT, font=("Arial", 14, "bold"), command=handle_login).pack(pady=15)
+ctk.CTkButton(login_right, text="Create New Account", width=280, height=35, fg_color="transparent", border_width=1, border_color=THEME_TEXT_MUTED, command=show_register).pack()
  
-ctk.CTkButton(login_frame, text="Login", width=310, height=42, command=handle_login).pack(pady=10)
-ctk.CTkButton(login_frame, text="Create Account", width=310, height=36, fg_color="transparent", border_width=1, command=show_register).pack(pady=10)
- 
- 
-# REGISTER FRAME
-register_frame = ctk.CTkFrame(app, width=430, height=470, corner_radius=22)
-register_frame.pack_propagate(False)
- 
-ctk.CTkLabel(register_frame, text="Create Account", font=("Arial", 26, "bold")).pack(pady=(38, 10))
-ctk.CTkLabel(register_frame, text="Register to start tracking your finances", font=("Arial", 14), text_color="gray").pack(pady=(0, 25))
- 
-reg_username_entry = ctk.CTkEntry(register_frame, placeholder_text="Username", width=310, height=42)
-reg_username_entry.pack(pady=10)
- 
-reg_password_entry = ctk.CTkEntry(register_frame, placeholder_text="Password", show="*", width=310, height=42)
-reg_password_entry.pack(pady=10)
- 
-reg_confirm_entry = ctk.CTkEntry(register_frame, placeholder_text="Confirm Password", show="*", width=310, height=42)
-reg_confirm_entry.pack(pady=10)
- 
-reg_error = ctk.CTkLabel(register_frame, text="", text_color="red")
-reg_error.pack(pady=5)
- 
-ctk.CTkButton(register_frame, text="Register", width=310, height=42, command=handle_register).pack(pady=10)
-ctk.CTkButton(register_frame, text="Back to Login", width=310, height=36, fg_color="transparent", border_width=1, command=show_login).pack(pady=10)
- 
- 
-# DASHBOARD FRAME
-dashboard_frame = ctk.CTkFrame(app, corner_radius=18)
- 
-sidebar = ctk.CTkFrame(dashboard_frame, width=230, corner_radius=18)
-sidebar.pack(side="left", fill="y", padx=(0, 15))
+# --- REGISTER GÖVDESİ ---
+register_frame = ctk.CTkFrame(auth_tabview.tab("RegisterView"), fg_color="transparent")
+register_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.7, relheight=0.7)
+reg_left = ctk.CTkFrame(register_frame, fg_color=THEME_SIDEBAR, corner_radius=20, border_width=1, border_color="#2A2A35")
+reg_left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+ctk.CTkLabel(reg_left, text="Join Us", font=("Arial", 36, "bold"), text_color=THEME_ACCENT).pack(pady=(140, 10))
+reg_right = ctk.CTkFrame(register_frame, fg_color=THEME_CARD, corner_radius=20, border_width=1, border_color="#2A2A35")
+reg_right.pack(side="right", fill="both", expand=True, padx=(10, 0))
+ctk.CTkLabel(reg_right, text="Register", font=("Arial", 28, "bold")).pack(pady=(50, 20))
+reg_username_entry = ctk.CTkEntry(reg_right, placeholder_text="Username", width=280, height=42, fg_color=THEME_BG, border_color="#2A2A35")
+reg_username_entry.pack(pady=8)
+reg_password_entry = ctk.CTkEntry(reg_right, placeholder_text="Password", show="*", width=280, height=42, fg_color=THEME_BG, border_color="#2A2A35")
+reg_password_entry.pack(pady=8)
+reg_confirm_entry = ctk.CTkEntry(reg_right, placeholder_text="Confirm Password", show="*", width=280, height=42, fg_color=THEME_BG, border_color="#2A2A35")
+reg_confirm_entry.pack(pady=8)
+reg_error = ctk.CTkLabel(reg_right, text="", text_color=THEME_EXPENSE)
+reg_error.pack(pady=4)
+ctk.CTkButton(reg_right, text="Sign Up", width=280, height=42, fg_color=THEME_ACCENT, command=handle_register).pack(pady=10)
+ctk.CTkButton(reg_right, text="Back to Login", width=280, height=35, fg_color="transparent", border_width=1, border_color=THEME_TEXT_MUTED, command=show_login).pack()
+
+
+# =========================================================================
+# 🔄 MAIN INTERFACE COMPONENT (KALI-MENÜ & LOGO & USER PANEL)
+# =========================================================================
+main_layout_frame = ctk.CTkFrame(app, fg_color="transparent")
+
+# --- KALICI SABİT SOL MENÜ (PERSISTENT SIDEBAR) ---
+sidebar = ctk.CTkFrame(main_layout_frame, width=250, fg_color=THEME_SIDEBAR, corner_radius=22)
+sidebar.pack(side="left", fill="y", padx=(0, 20))
 sidebar.pack_propagate(False)
+
+# 💠 VİZYONER LOGO ALANI (BRAND ZONE) - EN ÜSTTE
+logo_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+logo_frame.pack(fill="x", padx=20, pady=(30, 0))
+ctk.CTkLabel(logo_frame, text="💠 Finance AI", font=("Arial", 25, "bold"), text_color=THEME_ACCENT, anchor="w").pack(anchor="w")
+ctk.CTkLabel(logo_frame, text="Automated Ledger System", font=("Arial", 12), text_color=THEME_TEXT_MUTED, anchor="w").pack(anchor="w", pady=(2, 0))
+
+# 👤 GELİŞTİRİLMİŞ KİŞİSEL BİLGİLER KARTI (USER PRO ZONE)
+profile_card = ctk.CTkFrame(sidebar, fg_color="#22222A", height=65, corner_radius=14, border_width=1, border_color="#2A2A35")
+profile_card.pack(fill="x", padx=15, pady=(20, 25))
+profile_card.pack_propagate(False)
+
+avatar_label = ctk.CTkLabel(profile_card, text="👤", font=("Arial", 20))
+avatar_label.pack(side="left", padx=(12, 8))
+
+profile_info_frame = ctk.CTkFrame(profile_card, fg_color="transparent")
+profile_info_frame.pack(side="left", fill="y", pady=11)
+ctk.CTkLabel(profile_info_frame, text="Active Session", font=("Arial", 10), text_color=THEME_TEXT_MUTED).pack(anchor="w")
+user_name_label = ctk.CTkLabel(profile_info_frame, text="TEST USER", font=("Arial", 13, "bold"), text_color=THEME_INCOME)
+user_name_label.pack(anchor="w")
+
+# MENÜ NAVİGASYON BUTONLARI
+make_sidebar_btn(sidebar, "  📊  Dashboard", show_dashboard).pack(pady=5, padx=15)
+make_sidebar_btn(sidebar, "  📈  Analytics", show_analytics).pack(pady=5, padx=15)
+make_sidebar_btn(sidebar, "  ➕  Add Transaction", open_add_transaction).pack(pady=5, padx=15)
+make_sidebar_btn(sidebar, "  🧾  Receipt Upload", show_receipt_screen).pack(pady=5, padx=15)
+
+# OTURUM KAPATMA
+ctk.CTkButton(sidebar, text="🚪 Logout Session", width=220, height=42, fg_color="#2A2A35", hover_color=THEME_EXPENSE, corner_radius=12, font=("Arial", 13, "bold"), command=handle_logout).pack(side="bottom", pady=25)
+
+
+# --- İÇERİK DEĞİŞTİRME MOTORU (TABS) ---
+main_tabview = ctk.CTkTabview(main_layout_frame, fg_color="transparent")
+main_tabview.pack(side="right", fill="both", expand=True)
+
+main_tabview.add("DashboardView")
+main_tabview.add("AnalyticsView")
+main_tabview.add("TransactionFormView")
+main_tabview.add("ReceiptView")
+
+# 🛠️ ÇÖZÜM: Ana Ekrandaki sekmeleri de gizlemek için Grid'i kapatır
+main_tabview._segmented_button.grid_forget()
+
+# --- PAGE 1: DASHBOARD VIEW ---
+dashboard_content = ctk.CTkFrame(main_tabview.tab("DashboardView"), fg_color="transparent")
+dashboard_content.pack(fill="both", expand=True)
+
+welcome_label = ctk.CTkLabel(dashboard_content, text="Welcome back", font=("Arial", 32, "bold"))
+welcome_label.pack(anchor="w", pady=(5, 2))
+ctk.CTkLabel(dashboard_content, text="Here is your financial overview for this month.", font=("Arial", 15), text_color=THEME_TEXT_MUTED).pack(anchor="w", pady=(0, 20))
  
-ctk.CTkLabel(sidebar, text="Finance App", font=("Arial", 24, "bold")).pack(pady=(35, 10))
-ctk.CTkLabel(sidebar, text="Personal Assistant", font=("Arial", 13), text_color="gray").pack(pady=(0, 30))
+cards_frame = ctk.CTkFrame(dashboard_content, fg_color="transparent")
+cards_frame.pack(fill="x", pady=5)
  
-ctk.CTkButton(sidebar, text="Dashboard", width=180, height=40, command=show_dashboard).pack(pady=10)
-ctk.CTkButton(sidebar, text="Analytics", width=180, height=40, command=show_analytics).pack(pady=10)
-ctk.CTkButton(sidebar, text="Add Transaction", width=180, height=40, command=open_add_transaction).pack(pady=10)
-ctk.CTkButton(sidebar, text="Receipt Upload", width=180, height=40, command=show_receipt_screen).pack(pady=10)
-ctk.CTkButton(sidebar, text="Logout", width=180, height=40, fg_color="gray", command=handle_logout).pack(side="bottom", pady=35)
- 
-content = ctk.CTkFrame(dashboard_frame, fg_color="transparent")
-content.pack(side="right", fill="both", expand=True, padx=25, pady=25)
- 
-welcome_label = ctk.CTkLabel(content, text="Welcome back", font=("Arial", 30, "bold"))
-welcome_label.pack(anchor="w", pady=(5, 5))
- 
-ctk.CTkLabel(content, text="Here is your financial overview for this month.", font=("Arial", 15), text_color="gray").pack(anchor="w", pady=(0, 20))
- 
-cards_frame = ctk.CTkFrame(content, fg_color="transparent")
-cards_frame.pack(fill="x", pady=10)
- 
- 
-def create_card(parent, title, value_text):
-   card = ctk.CTkFrame(parent, width=170, height=105, corner_radius=18)
-   card.pack(side="left", padx=7)
+def create_card(parent, title, value_text, custom_border="#2A2A35"):
+   card = ctk.CTkFrame(parent, width=180, height=115, fg_color=THEME_CARD, corner_radius=18, border_width=1, border_color=custom_border)
+   card.pack(side="left", padx=6)
    card.pack_propagate(False)
- 
-   ctk.CTkLabel(card, text=title, font=("Arial", 13), text_color="gray").pack(pady=(16, 8))
-   value = ctk.CTkLabel(card, text=value_text, font=("Arial", 20, "bold"))
+   ctk.CTkLabel(card, text=title, font=("Arial", 13, "bold"), text_color=THEME_TEXT_MUTED).pack(pady=(20, 5))
+   value = ctk.CTkLabel(card, text=value_text, font=("Arial", 21, "bold"))
    value.pack()
+   return card, value
  
-   return value
+_, income_value = create_card(cards_frame, "Total Income", "0 TL")
+_, expense_value = create_card(cards_frame, "Total Expense", "0 TL")
+balance_card_frame, balance_value = create_card(cards_frame, "Net Balance", "0 TL") 
+_, risk_value = create_card(cards_frame, "Risk Score", "Low")
+_, transaction_count_value = create_card(cards_frame, "Transactions", "0")
  
- 
-income_value = create_card(cards_frame, "Total Income", "0 TL")
-expense_value = create_card(cards_frame, "Total Expense", "0 TL")
-balance_value = create_card(cards_frame, "Balance", "0 TL")
-risk_value = create_card(cards_frame, "Risk Score", "Low")
-transaction_count_value = create_card(cards_frame, "Transactions", "0")
- 
-middle_frame = ctk.CTkFrame(content, fg_color="transparent")
+middle_frame = ctk.CTkFrame(dashboard_content, fg_color="transparent")
 middle_frame.pack(fill="x", pady=20)
  
-category_card = ctk.CTkFrame(middle_frame, width=280, height=165, corner_radius=18)
+category_card = ctk.CTkFrame(middle_frame, width=300, height=180, fg_color=THEME_CARD, corner_radius=18, border_width=1, border_color="#2A2A35")
 category_card.pack(side="left", padx=(0, 15))
 category_card.pack_propagate(False)
- 
-ctk.CTkLabel(category_card, text="Top Spending Categories", font=("Arial", 17, "bold")).pack(anchor="w", padx=15, pady=(15, 8))
+ctk.CTkLabel(category_card, text="Top Spending Categories", font=("Arial", 16, "bold")).pack(anchor="w", padx=20, pady=(18, 10))
 category_list_frame = ctk.CTkFrame(category_card, fg_color="transparent")
 category_list_frame.pack(fill="both", expand=True)
  
-risk_card = ctk.CTkFrame(middle_frame, width=260, height=165, corner_radius=18)
-risk_card.pack(side="left", padx=(0, 15))
-risk_card.pack_propagate(False)
+ai_goal_card = ctk.CTkFrame(middle_frame, width=380, height=250, fg_color=THEME_CARD, corner_radius=18, border_width=1, border_color=THEME_ACCENT)
+ai_goal_card.pack(side="left", padx=(0, 15))
+ai_goal_card.pack_propagate(False)
+ctk.CTkLabel(ai_goal_card, text="🤖 AI Financial Snapshot", font=("Arial", 16, "bold"), text_color=THEME_ACCENT).pack(anchor="w", padx=20, pady=(14, 6))
+
+ai_goal_val = ctk.CTkLabel(ai_goal_card, text="Waiting for finance data...", font=("Arial", 14, "bold"), wraplength=330)
+ai_goal_val.pack(anchor="w", padx=20, pady=(2, 2))
+ai_weeks_val = ctk.CTkLabel(ai_goal_card, text="USD/TRY: waiting...", font=("Arial", 12), text_color=THEME_TEXT_MUTED, wraplength=330)
+ai_weeks_val.pack(anchor="w", padx=20, pady=1)
+ai_rates_val = ctk.CTkLabel(ai_goal_card, text="EUR/TRY and GBP/TRY: waiting...", font=("Arial", 12), text_color=THEME_TEXT_MUTED, wraplength=330)
+ai_rates_val.pack(anchor="w", padx=20, pady=1)
+ai_target_val = ctk.CTkLabel(ai_goal_card, text="Current Target: 1000 USD", font=("Arial", 12, "bold"), text_color=THEME_TEXT_MAIN, wraplength=330)
+ai_target_val.pack(anchor="w", padx=20, pady=(5, 1))
+ai_estimate_val = ctk.CTkLabel(ai_goal_card, text="Estimated Time: calculating...", font=("Arial", 12, "bold"), text_color=THEME_ACCENT, wraplength=330)
+ai_estimate_val.pack(anchor="w", padx=20, pady=(1, 6))
+
+ai_goal_input_frame = ctk.CTkFrame(ai_goal_card, fg_color="transparent")
+ai_goal_input_frame.pack(anchor="w", padx=20, pady=(2, 0))
+ai_target_entry = ctk.CTkEntry(ai_goal_input_frame, width=95, height=32, placeholder_text="Target", fg_color=THEME_BG, border_color="#2A2A35")
+ai_target_entry.insert(0, "1000")
+ai_target_entry.pack(side="left", padx=(0, 8))
+ai_currency_option = ctk.CTkOptionMenu(ai_goal_input_frame, values=["USD", "EUR", "GBP", "TRY"], width=80, height=32, fg_color="#2A2A35")
+ai_currency_option.set("USD")
+ai_currency_option.pack(side="left", padx=(0, 8))
+ctk.CTkButton(ai_goal_input_frame, text="Set Goal", width=95, height=32, fg_color=THEME_ACCENT, hover_color="#008B90", command=set_ai_goal_from_inputs).pack(side="left")
  
-ctk.CTkLabel(risk_card, text="Risk Level", font=("Arial", 17, "bold")).pack(anchor="w", padx=15, pady=(15, 8))
-risk_status_label = ctk.CTkLabel(risk_card, text="Low Risk", font=("Arial", 18, "bold"))
-risk_status_label.pack(pady=(5, 8))
- 
-risk_progress = ctk.CTkProgressBar(risk_card, width=210)
-risk_progress.pack(pady=5)
-risk_progress.set(0.25)
- 
-ratio_label = ctk.CTkLabel(risk_card, text="Expense / Income Ratio: 0.00", font=("Arial", 12), text_color="gray")
-ratio_label.pack(pady=5)
- 
-quick_card = ctk.CTkFrame(middle_frame, height=165, corner_radius=18)
+quick_card = ctk.CTkFrame(middle_frame, height=180, fg_color=THEME_CARD, corner_radius=18, border_width=1, border_color="#2A2A35")
 quick_card.pack(side="left", fill="both", expand=True)
 quick_card.pack_propagate(False)
- 
-ctk.CTkLabel(quick_card, text="Quick Actions", font=("Arial", 17, "bold")).pack(anchor="w", padx=20, pady=(18, 8))
- 
+ctk.CTkLabel(quick_card, text="Quick Actions Panel", font=("Arial", 16, "bold")).pack(anchor="w", padx=20, pady=(18, 12))
 quick_buttons = ctk.CTkFrame(quick_card, fg_color="transparent")
-quick_buttons.pack(anchor="w", padx=20, pady=(10, 0))
+quick_buttons.pack(anchor="w", padx=20, pady=5)
+ctk.CTkButton(quick_buttons, text="⚡ Add New Record", width=170, height=40, fg_color=THEME_ACCENT, hover_color="#008B90", font=("Arial", 13, "bold"), corner_radius=10, command=open_add_transaction).pack(side="left", padx=(0, 12))
+ctk.CTkButton(quick_buttons, text="🔄 Sync Data", width=150, height=40, fg_color="#2A2A35", hover_color="#353545", corner_radius=10, command=load_all_data_packages).pack(side="left")
  
-ctk.CTkButton(quick_buttons, text="Add Income / Expense", width=180, height=38, command=open_add_transaction).pack(side="left", padx=(0, 12))
-ctk.CTkButton(quick_buttons, text="Refresh Dashboard", width=180, height=38, fg_color="gray", command=show_dashboard).pack(side="left")
- 
-transactions_card = ctk.CTkFrame(content, corner_radius=18)
+transactions_card = ctk.CTkFrame(dashboard_content, fg_color=THEME_CARD, corner_radius=18, border_width=1, border_color="#2A2A35")
 transactions_card.pack(fill="both", expand=True)
- 
 table_top = ctk.CTkFrame(transactions_card, fg_color="transparent")
-table_top.pack(fill="x", padx=20, pady=(18, 10))
- 
-ctk.CTkLabel(table_top, text="Recent Transactions", font=("Arial", 20, "bold")).pack(side="left")
- 
-search_entry = ctk.CTkEntry(table_top, placeholder_text="Search transactions...", width=210, height=35)
+table_top.pack(fill="x", padx=20, pady=(15, 10))
+ctk.CTkLabel(table_top, text="Recent Ledger Logs", font=("Arial", 18, "bold")).pack(side="left")
+search_entry = ctk.CTkEntry(table_top, placeholder_text="Search logs...", width=220, height=35, fg_color=THEME_BG, border_color="#2A2A35")
 search_entry.pack(side="right", padx=(10, 0))
- 
-filter_option = ctk.CTkOptionMenu(table_top, values=["All", "income", "expense"], width=120, height=35, command=lambda value: update_transaction_table())
+filter_option = ctk.CTkOptionMenu(table_top, values=["All", "income", "expense"], width=110, height=35, fg_color="#2A2A35", command=lambda v: update_transaction_table())
 filter_option.pack(side="right")
- 
 search_entry.bind("<KeyRelease>", lambda event: update_transaction_table())
- 
-transaction_rows_frame = ctk.CTkScrollableFrame(transactions_card, fg_color="transparent", height=240)
-transaction_rows_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
- 
- 
-# ANALYTICS FRAME
-analytics_frame = ctk.CTkFrame(app, corner_radius=18)
- 
-analytics_sidebar = ctk.CTkFrame(analytics_frame, width=230, corner_radius=18)
-analytics_sidebar.pack(side="left", fill="y", padx=(0, 15))
-analytics_sidebar.pack_propagate(False)
- 
-ctk.CTkLabel(analytics_sidebar, text="Finance App", font=("Arial", 24, "bold")).pack(pady=(35, 10))
-ctk.CTkLabel(analytics_sidebar, text="Analytics Panel", font=("Arial", 13), text_color="gray").pack(pady=(0, 30))
- 
-ctk.CTkButton(analytics_sidebar, text="Dashboard", width=180, height=40, command=show_dashboard).pack(pady=10)
-ctk.CTkButton(analytics_sidebar, text="Analytics", width=180, height=40, command=show_analytics).pack(pady=10)
-ctk.CTkButton(analytics_sidebar, text="Add Transaction", width=180, height=40, command=open_add_transaction).pack(pady=10)
-ctk.CTkButton(analytics_sidebar, text="Receipt Upload", width=180, height=40, command=show_receipt_screen).pack(pady=10)
-ctk.CTkButton(analytics_sidebar, text="Logout", width=180, height=40, fg_color="gray", command=handle_logout).pack(side="bottom", pady=35)
- 
-analytics_content = ctk.CTkScrollableFrame(analytics_frame, fg_color="transparent")
-analytics_content.pack(side="right", fill="both", expand=True, padx=30, pady=30)
- 
-ctk.CTkLabel(analytics_content, text="Financial Analytics", font=("Arial", 32, "bold")).pack(anchor="w", pady=(0, 8))
-ctk.CTkLabel(analytics_content, text="Detailed overview of income, expenses, categories, and financial risk.", font=("Arial", 15), text_color="gray").pack(anchor="w", pady=(0, 25))
- 
-top_analytics_frame = ctk.CTkFrame(analytics_content, fg_color="transparent")
-top_analytics_frame.pack(fill="x", pady=10)
- 
-analytics_card = ctk.CTkFrame(top_analytics_frame, width=420, height=250, corner_radius=18)
-analytics_card.pack(side="left", padx=(0, 20))
-analytics_card.pack_propagate(False)
- 
-ctk.CTkLabel(analytics_card, text="Current Financial Overview", font=("Arial", 21, "bold")).pack(anchor="w", padx=25, pady=(25, 12))
- 
-analytics_summary = ctk.CTkLabel(analytics_card, text="Income: 0 TL\nExpense: 0 TL\nBalance: 0 TL\nExpense Ratio: 0.00", font=("Arial", 16), justify="left")
-analytics_summary.pack(anchor="w", padx=25, pady=8)
- 
-analytics_risk = ctk.CTkLabel(analytics_card, text="Risk Level: Low", font=("Arial", 18, "bold"))
-analytics_risk.pack(anchor="w", padx=25, pady=(10, 5))
- 
-analytics_progress = ctk.CTkProgressBar(analytics_card, width=350)
-analytics_progress.pack(anchor="w", padx=25, pady=8)
-analytics_progress.set(0.25)
- 
-insight_card = ctk.CTkFrame(top_analytics_frame, width=500, height=250, corner_radius=18)
-insight_card.pack(side="left", fill="both", expand=True)
-insight_card.pack_propagate(False)
- 
-ctk.CTkLabel(insight_card, text="Financial Insight", font=("Arial", 21, "bold")).pack(anchor="w", padx=25, pady=(25, 12))
- 
-insight_label = ctk.CTkLabel(insight_card, text="Your financial insight will appear here.", font=("Arial", 16), wraplength=430, justify="left")
-insight_label.pack(anchor="w", padx=25, pady=10)
- 
-ctk.CTkLabel(insight_card, text="Future AI Recommendation", font=("Arial", 17, "bold")).pack(anchor="w", padx=25, pady=(20, 5))
- 
-ctk.CTkLabel(
-   insight_card,
-   text="Personalized savings recommendations will be integrated here.",
-   font=("Arial", 14),
-   text_color="gray",
-   wraplength=430,
-   justify="left"
-).pack(anchor="w", padx=25)
- 
-charts_card = ctk.CTkFrame(analytics_content, corner_radius=18)
-charts_card.pack(fill="x", pady=20)
- 
-ctk.CTkLabel(charts_card, text="Visual Reports", font=("Arial", 22, "bold")).pack(anchor="w", padx=25, pady=(20, 10))
- 
-analytics_chart_frame = ctk.CTkFrame(charts_card, fg_color="transparent")
-analytics_chart_frame.pack(fill="x", padx=20, pady=(0, 20))
- 
-bottom_analytics_frame = ctk.CTkFrame(analytics_content, fg_color="transparent")
-bottom_analytics_frame.pack(fill="x", pady=(0, 20))
- 
-category_table_card = ctk.CTkFrame(bottom_analytics_frame, width=430, height=260, corner_radius=18)
-category_table_card.pack(side="left", padx=(0, 20))
-category_table_card.pack_propagate(False)
- 
-ctk.CTkLabel(category_table_card, text="Top Expense Categories", font=("Arial", 21, "bold")).pack(anchor="w", padx=25, pady=(20, 10))
- 
-analytics_category_table = ctk.CTkFrame(category_table_card, fg_color="transparent")
-analytics_category_table.pack(anchor="w", padx=15, pady=5)
- 
-future_ai_card = ctk.CTkFrame(bottom_analytics_frame, width=500, height=260, corner_radius=18)
-future_ai_card.pack(side="left", fill="both", expand=True)
-future_ai_card.pack_propagate(False)
- 
-ctk.CTkLabel(future_ai_card, text="Future AI Modules", font=("Arial", 21, "bold")).pack(anchor="w", padx=25, pady=(20, 10))
- 
-ctk.CTkLabel(
-   future_ai_card,
-   text="- NLP-based expense categorization\n"
-        "- Time-series expense prediction\n"
-        "- Personalized savings recommendations\n"
-        "- Monthly financial risk forecasting",
-   font=("Arial", 16),
-   justify="left"
-).pack(anchor="w", padx=25, pady=10)
- 
- 
-# RECEIPT UPLOAD FRAME
-receipt_frame = ctk.CTkFrame(app, corner_radius=18)
- 
-receipt_content = ctk.CTkScrollableFrame(receipt_frame, fg_color="transparent")
-receipt_content.pack(fill="both", expand=True, padx=35, pady=35)
- 
-ctk.CTkLabel(
-   receipt_content,
-   text="Receipt Upload",
-   font=("Arial", 32, "bold")
-).pack(anchor="w", pady=(0, 10))
- 
-ctk.CTkLabel(
-   receipt_content,
-   text="Upload receipt files to the backend system. The uploaded files can later be analyzed by the AI module.",
-   font=("Arial", 15),
-   text_color="gray",
-   wraplength=850
-).pack(anchor="w", pady=(0, 25))
+transaction_rows_frame = ctk.CTkScrollableFrame(transactions_card, fg_color="transparent", height=190)
+transaction_rows_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
 
-ctk.CTkButton(
-   receipt_content,
-   text="📂 Upload Receipt File",
-   width=320,
-   height=45,
-   command=upload_receipt_file
-).pack(anchor="w", pady=(15, 5))
- 
-ctk.CTkButton(
-   receipt_content,
-   text="📸 Take Photo with Camera",
-   width=320,
-   height=45,
-   fg_color="#2c7a3f", # Farklı görünmesi için yeşil bir ton
-   hover_color="#1e542b",
-   command=open_live_camera
-).pack(anchor="w", pady=(0, 15))
- 
-receipt_result_label = ctk.CTkLabel(
-   receipt_content,
-   text="Choose a receipt file to upload.",
-   font=("Arial", 15),
-   justify="left",
-   wraplength=900
-)
-receipt_result_label.pack(anchor="w", pady=20)
- 
-ctk.CTkLabel(
-   receipt_content,
-   text="Uploaded Receipts",
-   font=("Arial", 22, "bold")
-).pack(anchor="w", pady=(25, 10))
- 
-uploaded_files_frame = ctk.CTkFrame(receipt_content, fg_color="transparent")
-uploaded_files_frame.pack(fill="both", expand=True, anchor="w")
- 
-ctk.CTkButton(
-   receipt_content,
-   text="Back to Dashboard",
-   width=300,
-   height=40,
-   fg_color="gray",
-   command=show_dashboard
-).pack(anchor="w", pady=20)
- 
- 
-# TRANSACTION FRAME
-transaction_frame = ctk.CTkFrame(app, width=500, height=530, corner_radius=22)
-transaction_frame.pack_propagate(False)
- 
-ctk.CTkLabel(transaction_frame, text="Add / Edit Transaction", font=("Arial", 28, "bold")).pack(pady=(35, 10))
-ctk.CTkLabel(transaction_frame, text="Add or update an income/expense record", font=("Arial", 14), text_color="gray").pack(pady=(0, 20))
- 
-transaction_type_option = ctk.CTkOptionMenu(transaction_frame, values=["income", "expense"], width=320, height=42)
+
+# --- PAGE 2: ANALYTICS VIEW ---
+analytics_content = ctk.CTkScrollableFrame(main_tabview.tab("AnalyticsView"), fg_color="transparent")
+analytics_content.pack(fill="both", expand=True)
+
+analytics_top_bar = ctk.CTkFrame(analytics_content, fg_color="transparent")
+analytics_top_bar.pack(fill="x", pady=(0, 15))
+ctk.CTkLabel(analytics_top_bar, text="Financial Intelligence Panel", font=("Arial", 30, "bold")).pack(side="left")
+ctk.CTkButton(analytics_top_bar, text="⚡ Back to Dashboard", width=160, height=34, fg_color="#2A2A35", hover_color="#353545", corner_radius=8, font=("Arial", 12, "bold"), command=show_dashboard).pack(side="right")
+
+analytics_card = ctk.CTkFrame(analytics_content, height=100, fg_color=THEME_CARD, corner_radius=18, border_width=1, border_color="#2A2A35")
+analytics_card.pack(fill="x", pady=5)
+analytics_summary = ctk.CTkLabel(analytics_card, text="Computing...", font=("Arial", 15, "bold"), justify="left")
+analytics_summary.pack(anchor="w", padx=25, pady=20)
+
+charts_card = ctk.CTkFrame(analytics_content, fg_color=THEME_CARD, corner_radius=18, border_width=1, border_color="#2A2A35")
+charts_card.pack(fill="x", pady=15)
+analytics_chart_frame = ctk.CTkFrame(charts_card, fg_color="transparent")
+analytics_chart_frame.pack(fill="x", padx=10, pady=10)
+
+
+# --- PAGE 3: RECEIPT VIEW ---
+receipt_content = ctk.CTkScrollableFrame(main_tabview.tab("ReceiptView"), fg_color="transparent")
+receipt_content.pack(fill="both", expand=True)
+
+receipt_top_bar = ctk.CTkFrame(receipt_content, fg_color="transparent")
+receipt_top_bar.pack(fill="x", pady=(0, 15))
+ctk.CTkLabel(receipt_top_bar, text="Computer Vision Receipt OCR", font=("Arial", 30, "bold")).pack(side="left")
+ctk.CTkButton(receipt_top_bar, text="⚡ Back to Dashboard", width=160, height=34, fg_color="#2A2A35", hover_color="#353545", corner_radius=8, font=("Arial", 12, "bold"), command=show_dashboard).pack(side="right")
+
+receipt_card = ctk.CTkFrame(receipt_content, fg_color=THEME_CARD, corner_radius=20, border_width=1, border_color="#2A2A35")
+receipt_card.pack(fill="both", expand=True, pady=10)
+
+action_box = ctk.CTkFrame(receipt_card, fg_color="transparent")
+action_box.pack(fill="x", padx=25, pady=20)
+ctk.CTkButton(action_box, text="📂 Choose Local File", width=250, height=42, fg_color=THEME_ACCENT, font=("Arial", 14, "bold"), corner_radius=10, command=upload_receipt_file).pack(side="left", padx=(0, 15))
+ctk.CTkButton(action_box, text="📸 Trigger Live Camera Scanner", width=260, height=42, fg_color="#27AE60", font=("Arial", 14, "bold"), corner_radius=10, command=open_live_camera).pack(side="left")
+
+receipt_result_label = ctk.CTkLabel(receipt_card, text="Ready. New uploads will appear in Current Upload Status.", font=("Arial", 13), text_color=THEME_TEXT_MUTED)
+receipt_result_label.pack(anchor="w", padx=25, pady=(0, 15))
+
+uploaded_files_frame = ctk.CTkFrame(receipt_card, fg_color="transparent")
+uploaded_files_frame.pack(fill="both", expand=True, padx=25, pady=15)
+
+
+# --- PAGE 4: TRANSACTION FORM VIEW ---
+transaction_content = ctk.CTkFrame(main_tabview.tab("TransactionFormView"), fg_color="transparent")
+transaction_content.pack(fill="both", expand=True)
+
+form_top_bar = ctk.CTkFrame(transaction_content, fg_color="transparent")
+form_top_bar.pack(fill="x", pady=(0, 15))
+ctk.CTkLabel(form_top_bar, text="Ledger Registry", font=("Arial", 30, "bold")).pack(side="left")
+ctk.CTkButton(form_top_bar, text="⚡ Back to Dashboard", width=160, height=34, fg_color="#2A2A35", hover_color="#353545", corner_radius=8, font=("Arial", 12, "bold"), command=show_dashboard).pack(side="right")
+
+transaction_frame = ctk.CTkFrame(transaction_content, width=480, height=480, fg_color=THEME_SIDEBAR, corner_radius=25, border_width=1, border_color="#2A2A35")
+transaction_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+ctk.CTkLabel(transaction_frame, text="Transaction Details", font=("Arial", 22, "bold")).pack(pady=(30, 15))
+transaction_type_option = ctk.CTkOptionMenu(transaction_frame, values=["income", "expense"], width=340, height=42)
 transaction_type_option.pack(pady=10)
-transaction_type_option.set("expense")
- 
-desc_entry = ctk.CTkEntry(transaction_frame, placeholder_text="Description", width=320, height=42)
+desc_entry = ctk.CTkEntry(transaction_frame, placeholder_text="Transaction Details (e.g. Market)", width=340, height=42, fg_color=THEME_BG, border_color="#2A2A35")
 desc_entry.pack(pady=10)
- 
-amount_entry = ctk.CTkEntry(transaction_frame, placeholder_text="Amount", width=320, height=42)
+amount_entry = ctk.CTkEntry(transaction_frame, placeholder_text="Volume (Amount in TL)", width=340, height=42, fg_color=THEME_BG, border_color="#2A2A35")
 amount_entry.pack(pady=10)
- 
-category_entry = ctk.CTkEntry(transaction_frame, placeholder_text="Category", width=320, height=42)
+category_entry = ctk.CTkEntry(transaction_frame, placeholder_text="Classification Group (Category)", width=340, height=42, fg_color=THEME_BG, border_color="#2A2A35")
 category_entry.pack(pady=10)
- 
-transaction_error = ctk.CTkLabel(transaction_frame, text="", text_color="red")
-transaction_error.pack(pady=5)
- 
-save_transaction_button = ctk.CTkButton(transaction_frame, text="Save Transaction", width=320, height=42, command=handle_save_transaction)
-save_transaction_button.pack(pady=10)
- 
-ctk.CTkButton(transaction_frame, text="Back to Dashboard", width=320, height=38, fg_color="transparent", border_width=1, command=show_dashboard).pack(pady=10)
- 
- 
+save_transaction_button = ctk.CTkButton(transaction_frame, text="Commit Entry", width=340, height=45, fg_color=THEME_ACCENT, font=("Arial", 14, "bold"), corner_radius=10, command=handle_save_transaction)
+save_transaction_button.pack(pady=20)
+
+
+# =========================================================================
+# 🚀 Geliştirme Ortamı Başlangıç Ayarı
+# =========================================================================
+# Sistem ilk açılışta temiz asimetrik giriş ekranıyla başlar.
 show_login()
+
 app.mainloop()
