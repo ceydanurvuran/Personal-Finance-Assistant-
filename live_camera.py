@@ -2,6 +2,7 @@ import cv2
 import requests
 import os
 
+# --- AYARLAR ---
 BASE_URL = "http://127.0.0.1:8000"
 USERNAME = "test1"   # BURAYI KENDİ BİLGİLERİNLE DEĞİŞTİR
 PASSWORD = "1234"           # BURAYI KENDİ BİLGİLERİNLE DEĞİŞTİR

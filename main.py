@@ -3,6 +3,8 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from risk_analyzer import analyze_risk
+
 from core import get_connection, create_token, verify_token, hash_password, verify_password
 from ai_context import router as ai_router
 from file_upload import router as file_router
@@ -44,6 +46,17 @@ def init_db():
         is_analyzed INTEGER DEFAULT 0,
         uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+
+    # Hedef miktarı ve para birimini saklamak için users tablosuna sütunları ekliyoruz
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN target_amount REAL DEFAULT 100.0")
+    except sqlite3.OperationalError:
+        pass  # Sütun zaten mevcut
+    
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN target_currency TEXT DEFAULT 'USD'")
+    except sqlite3.OperationalError:
+        pass  # Sütun zaten mevcut
 
     conn.commit()
     conn.close()
@@ -179,6 +192,19 @@ def summary(user=Depends(verify_token)):
         res[r["type"]] = r["total"] or 0
 
     res["balance"] = res["income"] - res["expense"]
+
+    # Risk analyzer backend sonucunu hem skor hem detay olarak frontend'e gönderiyoruz.
+    risk_alerts = analyze_risk(user_id=user["user_id"]) 
+    
+    # Artık İngilizce kelimeleri arıyoruz
+    if any("HIGH RISK" in a for a in risk_alerts):
+        res["risk_score"] = "High"
+    elif any("Recurring" in a for a in risk_alerts):
+        res["risk_score"] = "Medium"
+    else:
+        res["risk_score"] = "Low"
+
+    res["risk_alerts"] = risk_alerts
     return res
 
 app.include_router(file_router)

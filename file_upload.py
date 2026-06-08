@@ -13,6 +13,9 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer
 from core import get_connection, verify_token
 
+# 👇 YAPAY ZEKA FİŞ OKUMA MOTORUNU BURAYA DAHİL ETTİK 👇
+from receipt_reading import process_receipt 
+
 router = APIRouter()
 
 # CONFIG
@@ -25,14 +28,11 @@ ALLOWED_TYPES = [
     "application/pdf"
 ]
 
-# Talha AI Service Key
 AI_SERVICE_KEY = "talha_ai_secret"
-
-# Swagger dokümantasyonunda kilit simgesinin kalması ve otomatik hata fırlatmaması için esnek şema
 security_scheme = HTTPBearer(auto_error=False)
 
 
-# UPLOAD RECEIPT
+# UPLOAD & ANALYZE RECEIPT
 @router.post("/upload-receipt")
 def upload_receipt(
     file: UploadFile = File(...),
@@ -44,34 +44,53 @@ def upload_receipt(
             detail="Only PNG, JPG, or PDF files can be uploaded"
         )
 
-    ext = file.content_type.split("/")[-1]
+    ext_map = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "application/pdf": "pdf"
+    }
+    ext = ext_map.get(file.content_type, "bin")
     filename = f"{uuid.uuid4()}.{ext}"
     path = os.path.join(UPLOAD_DIR, filename)
 
-    # Save the file
+    # 1. Dosyayı fiziksel olarak kaydet
     with open(path, "wb") as f:
         while chunk := file.file.read(1024 * 1024):
             f.write(chunk)
 
-    # DB record
+    # 2. PADDLE OCR ile fişi oku
+    store_name, amount, category = process_receipt(path)
+
     conn = get_connection()
     cursor = conn.cursor()
+    is_analyzed = 1 if amount > 0 else 0
 
+    # 3. Dosya kaydını veritabanına ekle
     cursor.execute("""
         INSERT INTO files (user_id, filename, filepath, is_analyzed)
-        VALUES (?, ?, ?, 0)
-    """, (
-        user["user_id"],
-        file.filename,
-        path
-    ))
+        VALUES (?, ?, ?, ?)
+    """, (user["user_id"], file.filename, path, is_analyzed))
+
+    # 4. Sadece gerçekten tutar okunursa bütçeye gider olarak ekle.
+    if amount > 0:
+        cursor.execute("""
+            INSERT INTO transactions (user_id, type, description, amount, category)
+            VALUES (?, 'expense', ?, ?, ?)
+        """, (user["user_id"], store_name, amount, category))
 
     conn.commit()
     conn.close()
 
+    # 5. Sonuçları döndür (live_camera.py bu sonuçları bekliyor)
     return {
-        "message": "Receipt uploaded",
-        "path": path
+        "message": "Receipt uploaded and analyzed" if amount > 0 else "Receipt uploaded but could not be read",
+        "path": path,
+        "ai_results": {
+            "store": store_name,
+            "total": amount,
+            "category": category,
+            "is_analyzed": is_analyzed
+        }
     }
 
 
@@ -90,7 +109,6 @@ def get_files(user=Depends(verify_token)):
 
     data = cursor.fetchall()
     conn.close()
-
     return [dict(i) for i in data]
 
 
@@ -129,41 +147,3 @@ def get_file(
         raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(file["filepath"])
-
-
-# MARK AS ANALYZED
-@router.patch("/files/{file_id}/analyzed")
-def mark_as_analyzed(
-    file_id: int,
-    x_api_key: str = Header(default=None),
-    authorization=Depends(security_scheme)
-):
-    is_ai = (x_api_key == AI_SERVICE_KEY)
-    token_payload = None
-
-    if not is_ai:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing token or API key")
-        try:
-            from core import verify_token
-            token_payload = verify_token(authorization)
-        except Exception as e:
-            raise HTTPException(status_code=401, detail=str(e))
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    if is_ai:
-        cursor.execute("UPDATE files SET is_analyzed = 1 WHERE id=?", (file_id,))
-    else:
-        cursor.execute("UPDATE files SET is_analyzed = 1 WHERE id=? AND user_id=?", 
-                       (file_id, token_payload["user_id"]))
-
-    if cursor.rowcount == 0:
-        conn.close()
-        raise HTTPException(status_code=404, detail="File not found")
-
-    conn.commit()
-    conn.close()
-
-    return {"message": "File marked as analyzed."}
